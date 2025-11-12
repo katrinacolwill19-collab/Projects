@@ -1,0 +1,283 @@
+```{r}
+# install dendextend if needed
+if (!requireNamespace("dendextend", quietly=TRUE)) {
+  install.packages("pacman")
+}
+library(pacman)
+```
+```{r}
+library(tidyverse)
+```
+```{r}
+p_load(tidyverse, pheatmap)
+```
+```{r}
+# 1) Concatenate specified columns into a single string column
+concat_columns <- function(df, cols, sep="_") {
+  # cols: character vector of existing column names in df
+  newcol <- paste(cols, collapse = sep)
+  df[[newcol]] <- do.call(
+    paste,
+    c(df[cols], sep = sep)
+  )
+  df
+}
+
+# 2) Convert a character/factor column into integer-coded categories
+to_categories <- function(df, col, new_col = NULL) {
+  # col: name of the column to convert
+  # new_col: optional name for the output; if NULL, overwrites col
+  if (is.null(new_col)) new_col <- col
+  df[[new_col]] <- as.numeric(factor(df[[col]]))
+  df
+}
+```
+```{r}
+
+dat <- read_csv('heart_disease_health_indicators_BRFSS2015.csv', show_col_types = FALSE)
+head(dat)
+```
+```{r}
+# rename heart disease column to HD
+colnames(dat)[1]<-"HD"
+colnames(dat)[12]<-"HvyAlcoholConsump"
+head(dat)
+```
+```{r}
+# Say Fruit has n1 categories and HighChol has n2 number of categories
+# We want to divide the dataset into n1*n2 number of new datasets. If n1=4 and n2=3 then we have n1*n2 = 12 new datasets
+
+pred_columns = c("HighBP", "HighChol", "Stroke", "HvyAlcoholConsump", "Sex")
+
+# this adds a column named "Fruits_HighChol"
+sep = "_" # setting the separator for the column name as underscore
+collapsed_pred_columns <- paste0(pred_columns, collapse = sep)
+```
+```{r}
+# Let's see how many categories and their count for the chosen pred_columns
+# This is what we call n1 by n2 contingency table
+dat[pred_columns]
+```
+```{r}
+# suppose your data frame is `dat` and you want to use Fruits, HighChol
+dat2 <- concat_columns(dat, pred_columns)
+
+head(dat2[c(pred_columns, collapsed_pred_columns)])
+```
+```{r}
+
+# now turn that into each unique combination of the collapsed_pred_columns 
+recategorized_collapsed_pred_column_name = paste0(collapsed_pred_columns, '_', "regrouped")
+dat3 <- to_categories(dat2, collapsed_pred_columns, recategorized_collapsed_pred_column_name)
+
+# get the frequency of the new tables
+# for Fruit and HighChol, we have n1=2 and n2=2 so n1*n2=4 new categories
+table(dat3[[recategorized_collapsed_pred_column_name]])
+
+```
+```{r}
+group_numbers <- 0:31
+binary_labels <- sapply(group_numbers, function(x) {
+  bits <- rev(as.integer(intToBits(x))[1:5])
+  paste(bits, collapse = "")
+})
+
+split_binary <- do.call(rbind, strsplit(binary_labels, ""))
+colnames(split_binary) <- c("HighBP", "HighChol", "Stroke", "HvyAlcoholConsump", "Sex")
+
+group_map <- data.frame(
+  GroupNumber = 1:32,
+  HighBP = as.integer(split_binary[, 1]),
+  HighChol = as.integer(split_binary[, 2]),
+  Stroke = as.integer(split_binary[, 3]),
+  HvyAlcoholConsump = as.integer(split_binary[, 4]),
+  Sex = as.integer(split_binary[, 5])
+)
+
+# Step 2: Recalculate group numbers in your data based on binary values
+# Make sure your columns exist and are 0/1 integers
+dat$GroupNumber <- with(dat,
+  1 + HighBP * 16 + HighChol * 8 + Stroke * 4 + HvyAlcoholConsump * 2 + Sex * 1
+)
+
+# Step 3: Count how many individuals are in each group
+group_counts <- as.data.frame(table(dat$GroupNumber))
+colnames(group_counts) <- c("GroupNumber", "Count")
+group_counts$GroupNumber <- as.integer(as.character(group_counts$GroupNumber))
+
+# Step 4: Merge counts into the mapping table
+group_map <- merge(group_map, group_counts, by = "GroupNumber", all.x = TRUE)
+group_map$Count[is.na(group_map$Count)] <- 0  # fill empty groups with 0
+
+# Step 5: Done — view the final table
+print(group_map)
+```
+```{r}
+
+dat3[[response_col]] = as.numeric(dat3[[response_col]])
+dat3[[recategorized_collapsed_pred_column_name]] = as.factor(dat3[[recategorized_collapsed_pred_column_name]])
+
+ggplot(dat3,
+       aes_string(
+         x    = recategorized_collapsed_pred_column_name,
+         fill = recategorized_collapsed_pred_column_name
+       )) +
+  geom_bar() +
+  scale_fill_brewer(palette = "Set2") +    # or scale_fill_manual() with your own colors
+  labs(
+    x    = gsub("_", " ", recategorized_collapsed_pred_column_name) %>% str_to_title(),
+    y    = "Count",
+    fill = "Category"
+  ) +
+  theme_classic()
+```
+```{r}
+# we can divide the datasets into n1*n2 new datasets. For Fruit and HighChol combination, we have 4 new datasets.
+dat3_splits <- split(dat3, dat3[[recategorized_collapsed_pred_column_name]])
+
+# dat3_splits is now a list with components “1”, “2”, “3”, “4” for Fruit and HighChol
+# str(dat3_splits)
+```
+```{r}
+# Within each new dataset, we plot histogram of the response. In this case, BMI
+
+response_col = "BMI" 
+df2 <- bind_rows(dat3_splits, .id = "panel")
+
+# plot response as a histogram, faceted by panel, with free scales on both axes
+ggplot(df2, aes_string(x = response_col)) +
+  geom_histogram(binwidth = diff(range(df2[[response_col]])) / 30,       # or set bins=30
+                 color = "black", fill = "lightblue") +
+  facet_wrap(~ panel, scales = "free") +
+  labs(x = response_col, y = "Count") +
+  theme_minimal()
+```
+```{r}
+# boxplot, one box per panel for the new dataset
+ggplot(dat3, aes_string(x = response_col, fill = recategorized_collapsed_pred_column_name)) +
+  geom_histogram(
+    position = "identity",    # overlay them
+    alpha    = 0.8,           # semi‐transparent
+    bins     = 100
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "BMI distributions by disease‐status group",
+    x     = response_col,
+    y     = "Count",
+    fill  = recategorized_collapsed_pred_column_name
+  ) +
+  theme_classic()
+
+```
+```{r}
+ggplot(dat3, aes_string(
+  x = recategorized_collapsed_pred_column_name,
+  y = response_col,
+  fill = recategorized_collapsed_pred_column_name
+)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = 16, outlier.size = 2) +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "BMI Distributions by Disease-Status Group",
+    x     = recategorized_collapsed_pred_column_name,
+    y     = response_col,
+    fill  = recategorized_collapsed_pred_column_name
+  ) +
+  theme_classic()
+geom_boxplot + facet_grid()
+```
+```{r}
+contab = table(dat[pred_columns])
+group_counts <- as.numeric(contab)
+mat_counts <- matrix(group_counts, nrow = 1,
+                     dimnames = list("Count", names(group_counts)))
+hc_groups <- hclust(dist(t(mat_counts)), method = "complete")
+
+# Draw the heatmap of the single row based on the contingency table, with the group‐dendrogram on top
+pheatmap(
+  mat_counts,
+  cluster_rows = FALSE,        # only cluster the columns
+  cluster_cols = hc_groups,
+  legend       = TRUE,
+  display_numbers = TRUE,      # show the counts in the cells
+  main         = "Group counts\nwith group dendrogram",
+  fontsize_number = 12
+)
+```
+```{r}
+library(pheatmap)
+
+# Create contingency table and convert to matrix
+contab <- table(dat[pred_columns])
+group_counts <- as.numeric(contab)
+group_labels <- names(contab)
+
+mat_counts <- matrix(group_counts,
+                     nrow = 1,
+                     dimnames = list("Count", group_labels))
+
+# Create a new matrix of group indices (1, 2, 3, ...)
+mat_labels <- matrix(seq_along(group_counts),
+                     nrow = 1,
+                     dimnames = list("Group", group_labels))
+
+# Cluster the columns
+hc_groups <- hclust(dist(t(mat_counts)), method = "complete")
+
+# Draw the heatmap with group numbers instead of counts
+pheatmap(
+  mat_counts,
+  cluster_rows = FALSE,
+  cluster_cols = hc_groups,
+  legend = TRUE,
+  display_numbers = mat_labels,  # Show group numbers instead of counts
+  main = "Group counts\nwith group dendrogram",
+  fontsize_number = 10
+)
+```
+```{r}
+# One‐way ANOVA for BMI with Fruit_HighChol
+fmla <- as.formula(
+  paste(response_col, "~", recategorized_collapsed_pred_column_name)
+)
+anova_mod <- aov( fmla, data = dat3)
+summary(anova_mod)
+```
+```{r}
+library(car)
+
+# Check your dataset
+library(lmtest)
+library(sandwich)
+
+# Fit model
+fmla <- BMI ~ HighBP + HighChol + Stroke + HvyAlcoholConsump + Sex
+lmHeart <- lm(fmla, data = dat3)
+
+# Get robust covariance matrix
+robust_cov <- vcovHC(lmHeart, type = "HC3")
+
+# Run robust F-test for all predictors
+waldtest(lmHeart, vcov = robust_cov, test = "F")
+```
+```{r}
+# Tukey–Kramer simultaneous pairwise comparisons
+tukey_res <- TukeyHSD(anova_mod)
+print(tukey_res)
+```
+```{r}
+# Check normality of residuals
+
+# QQ‐plot of residuals
+qqnorm(residuals(anova_mod))
+qqline(residuals(anova_mod))
+```
+```{r}
+# # Shapiro–Wilk by group
+# by(dat3$Age, dat3$group_id, function(x) {
+#   if (length(x) >= 3) shapiro.test(x)$p.value else NA
+# })
+
+leveneTest(fmla, data = dat3)
+```
