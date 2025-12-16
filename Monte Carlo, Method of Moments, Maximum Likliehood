@@ -1,0 +1,196 @@
+# Katrina Colwill
+# STA 130A Final Project
+# Monte Carlo, Method of Moments, Maximum Likliehood
+
+# Part 1A ---------------------------------------------------------------
+
+# For reproducing results
+set.seed(869)
+
+# Set interval max and min
+n <- 10000000
+samples <- runif(n, min = -1, max = 1)
+maxval = 1
+minval = -1
+
+alpha = 0.05
+z = qnorm(1 - alpha/2)
+
+# Quantile of the standard normal distribution 
+sam_mean = mean(samples^2*exp(samples))
+s = sqrt(var(samples^2*exp(samples)))
+CI = c(sam_mean-s*z/sqrt(n),sam_mean+s*z/sqrt(n))
+# Interval length
+L <- maxval - minval   # (b - a)
+
+# Scale by (b - a)
+scaled_mean <- (mean(samples^2*exp(samples))) * (L)
+scaled_CI <- CI * (L)
+
+# Print results 
+print(scaled_mean)
+print(scaled_CI)
+
+
+# Part 1B -----------------------------------------------------------------
+
+# Stating true value
+true_value <- e^1 - 5e^(-1)
+
+n <- 100000 # Sample size for each CI
+m <- 100000 # Number of repetitions
+num.successes <- 0
+
+alpha = 0.05
+z = qnorm(1 - alpha/2)
+
+# Calculations Loop for every number in m
+for (i in 1:m) {
+  # Draw Monte Carlo sample
+  samples <- runif(n, min = -1, max = 1)
+  maxval = 1
+  minval = -1
+  
+  # Quantile of the standard normal distribution 
+  sam_mean = mean(samples^(2)*exp(samples))
+  s = sqrt(var(samples^(2)*exp(samples)))
+  CI = c(sam_mean-s*z/sqrt(n),sam_mean+s*z/sqrt(n))
+  # Interval length
+  L <- maxval - minval   # (b - a)
+  
+  # Scale by (b - a)
+  estimate_mean <- (sam_mean) * (L)
+  scaled_CI <- CI * (L)
+  
+  # Check if true value is inside CI and keep track if it is
+  if(true_value > scaled_CI[1] && true_value < scaled_CI[2]) {
+    num.successes <- num.successes + 1
+  }
+}
+# Print results
+cat("Coverage probability is approximately:", num.successes/m, "\n")
+
+
+# Part 2C -----------------------------------------------------------------
+
+# Mu refers to 𝜇
+# For reproducing results
+set.seed(869)     
+
+mu <- 4            # True Poisson mean (random value choosen)
+n <- 1000         # Sample size
+B <- 5000        # Bootstrapping samples
+
+# Generate sample from Poisson(mu)
+X <- rpois(n, lambda = mu)
+
+# True second moment value
+true_second_moment <- mu + mu^2
+cat("True second moment (mu + mu^2):", true_second_moment, "\n\n")
+
+# 2a estimator
+estim_1_moment <- mean(X^2)
+cat("Sample Moment (mean of X^2):", estim_1_moment, "\n")
+
+# 2b estimator
+mu_hat <-mean(X)
+estim_2_moment <- mu_hat + mu_hat^2
+cat("Sample Moment (mu_hat^2):", estim_2_moment, "\n")
+
+# Estimator 1 variance (Bootstrap)
+boot_vals <- numeric(B)
+boot_true <- mu_hat + mu_hat^2
+
+# Loop for every value in variable B
+for (b in 1:B){
+  # Bootstrap resample from X
+  X_boot <- rpois(n, lambda = mu_hat)
+  # Bootstrapping values
+  estim1_boot <- mean(X_boot^2)
+  val <- sqrt(n) * (estim1_boot - boot_true)
+  boot_vals[b] <- val
+}
+# Measure association between values collected
+tau2_estim <- var(boot_vals)
+
+#Print results
+cat("2c.1 Bootstrap Estimate / tau square:     ", tau2_estim, "\n")
+
+
+# Estimator 2 variance (Delta Method Estimate)
+# Delta method: 
+# Ex = mu + mu^2
+# E'x = 1 + 2mu
+#g'(mu)^2 * var(X)
+#g'(mu)^2 * mu_hat
+g_prime <- 1 + 2 * mu_hat
+sigma2_estim <- (g_prime^2) * mu_hat
+
+# Print results
+cat("2c.2 Delta Method Estimate / sigma square:", sigma2_estim, "\n")
+
+
+# Part 3D -----------------------------------------------------------------
+
+# State true value
+theta_true <- 8 
+# Number of theta value sequenced
+n_values <- seq(8, 160, by = 8)
+m <- 10000 # Number of repetitions
+
+# Container for bias and variance
+bias_mom <- numeric(length(n_values))
+bias_mle <- numeric(length(n_values))
+var_mom <- numeric(length(n_values))
+var_mle <- numeric(length(n_values))
+
+# For every m simulation loop
+for (j in 1:length(n_values)) {
+  n <- n_values[j]
+  
+  # Estimation of mom and mle
+  est_mom <- numeric(m)
+  est_mle <- numeric(m)
+  
+  # For every m loop
+  for (i in 1:m) {
+    
+    # Get random uniform X
+    X <- runif(n, min = 0, max = theta_true)
+    
+    # Theta MoM  = 2X
+    # Theta MLE = max
+    est_mom[i] <- 2 * mean(X)
+    est_mle[i] <- max(X)
+  }
+  
+  # Get Bias & Var
+  # Bias = E[theta_hat] - theta_true
+  # Variance = Var(theta(hat))
+  
+  bias_mom[j] <- mean(est_mom) - theta_true
+  bias_mle[j] <- mean(est_mle) - theta_true
+  
+  var_mom[j] <- var(est_mom)
+  var_mle[j] <- var(est_mle)
+}
+
+# Setting canvas
+par(mfrow = c(1, 2))
+
+# Plotting Bias Chart 
+plot(n_values, abs(bias_mom), type = "b", col = "red", pch = 19, 
+     ylim = range(c(abs(bias_mom), abs(bias_mle))),
+     xlab = "Sample Size (n)", ylab = "|Bias|", main = "Comparing Bias")
+lines(n_values, abs(bias_mle), type = "b", col = "purple", pch = 19)
+legend("topright", legend = c("MoM", "MLE"), col = c("red", "purple"), pch = 19)
+
+# Plotting Variance Chart
+plot(n_values, var_mom, type = "b", col = "red", pch = 19, ylim = range(c(var_mom, var_mle)),
+     xlab = "Sample Size (n)", ylab = "Variance", main = "Comparing Variance")
+lines(n_values, var_mle, type = "b", col = "purple", pch = 19)
+legend("topright", legend = c("MoM", "MLE"), col = c("red", "purple"), pch = 19)
+
+# Displaying graphs together
+par(mfrow = c(1, 1))
+
